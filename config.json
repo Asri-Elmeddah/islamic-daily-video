@@ -1,0 +1,17 @@
+{
+  "reciter_edition": "ar.alafasy",
+  "reciter_name_ar": "مشاري راشد العفاسي",
+  "audio_bitrate": 128,
+  "max_video_seconds": 30,
+  "video_width": 1080,
+  "video_height": 1920,
+  "fps": 30,
+  "background_image": "assets/background.png",
+  "ayah_background": "assets/ayah_background.png",
+  "font_regular": "fonts/Amiri-Regular.ttf",
+  "font_bold": "fonts/Amiri-Bold.ttf",
+  "output_dir": "output",
+  "cache_dir": "cache",
+  "history_file": "data/history.json",
+  "override_surah_number": null
+}
