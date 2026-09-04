@@ -1,0 +1,4 @@
+requests
+pillow>=10.0
+mutagen
+arabic-reshaper
