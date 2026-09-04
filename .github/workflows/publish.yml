@@ -1,0 +1,61 @@
+name: Publish Islamic Video Reels
+
+on:
+  workflow_dispatch: {}  # يخدم فقط عبر cron-job.org كل 3 ساعات
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg
+        run: |
+          ffmpeg -version
+          sudo apt-get update && sudo apt-get install -y ffmpeg || true
+          ffmpeg -version
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Ensure fonts and assets
+        run: |
+          ls -lh fonts/
+          ls -lh assets/
+          ls -lh data/
+
+      - name: Run generate + publish Reels
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_ACCOUNT_ID: ${{ secrets.IG_ACCOUNT_ID }}
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+        run: python generate_and_publish_video.py
+
+      - name: Upload generated video for debug
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-video
+          path: output/
+          retention-days: 3
+
+      - name: Commit updated history.json
+        run: |
+          git config user.name "video-bot"
+          git config user.email "video-bot@users.noreply.github.com"
+          git add data/history.json
+          git diff --staged --quiet || git commit -m "update video history [skip ci]"
+          git push
