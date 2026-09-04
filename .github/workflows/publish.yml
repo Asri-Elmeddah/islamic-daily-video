@@ -1,7 +1,7 @@
 name: Publish Islamic Video Reels
 
 on:
-  workflow_dispatch: {}  # يخدم فقط عبر cron-job.org كل 3 ساعات
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -22,8 +22,10 @@ jobs:
 
       - name: Install ffmpeg
         run: |
-          ffmpeg -version
-          sudo apt-get update && sudo apt-get install -y ffmpeg || true
+          if ! command -v ffmpeg &> /dev/null; then
+            echo "ffmpeg not found, installing..."
+            sudo apt-get update && sudo apt-get install -y ffmpeg
+          fi
           ffmpeg -version
 
       - name: Install dependencies
