@@ -27,13 +27,35 @@ def get_env(name):
         raise RuntimeError(f"{name} غير موجود. set {name}=YOUR_VALUE")
     return v
 
+def upload_video_to_catbox(video_path):
+    """Fallback for video if Cloudinary fails - uses catbox.moe"""
+    print("      Fallback: uploading video to catbox.moe...")
+    with open(video_path, "rb") as f:
+        resp = requests.post(
+            "https://catbox.moe/user/api.php",
+            data={"reqtype": "fileupload"},
+            files={"fileToUpload": f},
+            timeout=120,
+        )
+    resp.raise_for_status()
+    url = resp.text.strip()
+    if not url.startswith("http"):
+        raise RuntimeError(f"catbox video upload failed: {resp.text[:500]}")
+    print(f"      catbox URL: {url}")
+    try:
+        h = requests.head(url, timeout=15, allow_redirects=True)
+        print(f"      catbox HEAD {h.status_code} {h.headers.get('Content-Type')}")
+    except Exception as e:
+        print(f"      [WARN] catbox verify: {e}")
+    time.sleep(2)
+    return url
+
 def upload_video_get_public_url(video_path):
     """Upload MP4 to Cloudinary (resource_type video) and return secure_url"""
     cloud_name = get_env("CLOUDINARY_CLOUD_NAME")
     api_key = get_env("CLOUDINARY_API_KEY")
     api_secret = get_env("CLOUDINARY_API_SECRET")
     timestamp = str(int(time.time()))
-    # Cloudinary signature: timestamp param only
     to_sign = f"timestamp={timestamp}{api_secret}"
     signature = hashlib.sha1(to_sign.encode("utf-8")).hexdigest()
     print(f"      Cloud: {cloud_name}, uploading video {os.path.getsize(video_path)} bytes...")
@@ -56,9 +78,13 @@ def upload_video_get_public_url(video_path):
     try:
         head = requests.head(url, timeout=20, allow_redirects=True)
         print(f"      HEAD {head.status_code} {head.headers.get('Content-Type')} {head.headers.get('Content-Length')}")
+        # Cloudinary video needs a moment to be ready for Instagram crawler
+        if head.status_code == 200:
+            print("      Waiting 5s for Cloudinary video to be fully ready...")
+            time.sleep(5)
     except Exception as e:
         print(f"      [WARN] head verify: {e}")
-    time.sleep(2)
+        time.sleep(3)
     return url
 
 def create_reels_container(account_id, access_token, video_url, caption):
@@ -137,15 +163,42 @@ def publish_reels(video_path, caption):
     video_url = upload_video_get_public_url(video_path)
     print("      URL:", video_url)
     try:
-        import subprocess
-        # quick probe
         print(f"      Video local size: {os.path.getsize(video_path)}")
     except Exception: pass
     print("[2/4] إنشاء Reels container...")
-    container_id = create_reels_container(account_id, access_token, video_url, caption)
+    try:
+        container_id = create_reels_container(account_id, access_token, video_url, caption)
+    except RuntimeError as e:
+        err_str = str(e)
+        if "2207052" in err_str or "Media download" in err_str or "9004" in err_str:
+            print("      [WARN] Cloudinary video may not be fetchable, trying catbox fallback...")
+            try:
+                fallback_url = upload_video_to_catbox(video_path)
+                print(f"      Fallback URL: {fallback_url}")
+                container_id = create_reels_container(account_id, access_token, fallback_url, caption)
+                print("      Fallback succeeded!")
+            except Exception as fe:
+                raise RuntimeError(f"Cloudinary failed: {e} | Fallback also failed: {fe}") from fe
+        else:
+            raise
     print("      Container ID:", container_id)
     print("[3/4] انتظار تجهيز الفيديو (قد يأخذ 30-60 ثانية)...")
-    wait_until_ready(container_id, access_token)
+    try:
+        wait_until_ready(container_id, access_token)
+    except RuntimeError as e:
+        err_str = str(e)
+        if "ERROR" in err_str and "status_code': 'ERROR'" in err_str:
+            print("      [WARN] Instagram failed to process Cloudinary video, trying catbox fallback...")
+            try:
+                fallback_url = upload_video_to_catbox(video_path)
+                print(f"      Fallback URL: {fallback_url}")
+                container_id = create_reels_container(account_id, access_token, fallback_url, caption)
+                print(f"      New Container ID: {container_id}")
+                wait_until_ready(container_id, access_token)
+            except Exception as fe:
+                raise RuntimeError(f"Original error: {e} | Fallback also failed: {fe}") from fe
+        else:
+            raise
     time.sleep(3)
     print("[4/4] نشر الريلز...")
     media_id = publish_container(account_id, access_token, container_id)
